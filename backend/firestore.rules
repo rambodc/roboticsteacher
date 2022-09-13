@@ -1,0 +1,38 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function checkLogin(){return request.auth != null;}
+    function belongsToUser(){return request.auth.uid == resource.data.uid;}
+    function teacherInClassRoom(){return request.auth.uid in resource.data.teachers;}
+    function teacherOfStudent(){return request.auth.uid == resource.data.teacher;}
+    function denyFields(fields){
+      return !request.resource.data.diff(resource.data).affectedKeys()
+        .hasAny(fields);
+    }
+
+    match /users/{document} {
+      allow read: if checkLogin() && belongsToUser();
+      allow update: if checkLogin() && belongsToUser() && denyFields(
+        ['uid', 'profilePicture', 'createdDate]
+      );
+    }
+
+    match /classrooms/{document} {
+      allow read, delete, create: if checkLogin() && teacherInClassRoom();
+      allow update: if checkLogin() && teacherInClassRoom() && denyFields(
+        ['createdDate']
+      );
+    }
+
+    match /students/{document} {
+      allow read, delete: if checkLogin() && teacherOfStudent();
+      allow update: if checkLogin() && teacherOfStudent() && denyFields(
+        ['createdDate', 'email', 'status']
+      );
+    }
+  }
+}
