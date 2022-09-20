@@ -6,6 +6,7 @@ service cloud.firestore {
     }
 
     function checkLogin(){return request.auth != null;}
+    // change this
     function belongsToUser(){return request.auth.uid == resource.data.uid;}
     function teacherInClassRoom(){return request.auth.uid in resource.data.teachers;}
     function teacherOfStudent(){return request.auth.uid == resource.data.teacher;}
@@ -17,21 +18,21 @@ service cloud.firestore {
     match /users/{document} {
       allow read: if checkLogin() && belongsToUser();
       allow update: if checkLogin() && belongsToUser() && denyFields(
-        ['uid', 'profilePicture', 'createdDate]
+        ['uid', 'profilePicture', 'createdTimeStamp'] //remove uid
       );
     }
 
     match /classrooms/{document} {
       allow read, delete, create: if checkLogin() && teacherInClassRoom();
       allow update: if checkLogin() && teacherInClassRoom() && denyFields(
-        ['createdDate']
+        ['createdTimeStamp', 'teachers']
       );
     }
 
     match /students/{document} {
       allow read, delete: if checkLogin() && teacherOfStudent();
       allow update: if checkLogin() && teacherOfStudent() && denyFields(
-        ['createdDate', 'email', 'status']
+        ['createdTimeStamp', 'email', 'status', 'teacher']
       );
     }
   }

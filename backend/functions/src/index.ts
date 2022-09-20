@@ -1,4 +1,4 @@
-import * as functions from "firebase-functions";
+import * as functions from "firebase-functions/v2";
 import * as admin from "firebase-admin";
 import express, {Express, Request, Response} from "express";
 import {body, validationResult} from "express-validator";
@@ -64,20 +64,19 @@ const authMiddleware = async (req: Request, res: Response, next: any) => {
   if (headers.authorization && headers.authorization.includes('Bearer ')) {
     const token = headers.authorization.split(' ')[1]
 
-    let uid: string;
     try {
       const user = (await admin.auth().verifyIdToken(token, true))
       if (user.email_verified) {
-        uid = user.uid
+        (req as UidRequest).uid = user.uid
+        next()
       } else {
         throw new Error("Unverified email")
       }
     } catch (e) {
       console.log(e)
-      return res.sendStatus(403)
+      res.sendStatus(403)
     }
-    (req as UidRequest).uid = uid
-    next()
+    
   } else {
     res.sendStatus(400)
   }
@@ -161,6 +160,7 @@ app.post("/updatePicture",
         }
 
         let filename = ''
+        let baseUrl = ''
         let deleteFile = async () => {
           true;
         };
@@ -211,6 +211,7 @@ app.post("/updatePicture",
               },
             },
           });
+          baseUrl = File.baseUrl ?? '' 
           deleteFile = async () => {
             File.delete();
           };
@@ -220,6 +221,9 @@ app.post("/updatePicture",
         try {
           userDoc.update({
             picture: filename
+          })
+          return res.status(200).send({
+            url: baseUrl
           })
         } catch (e) {
           await deleteFile()
@@ -233,6 +237,7 @@ app.post("/updatePicture",
 app.post("/invite",
   authMiddleware,
   body("to").isEmail(),
+  body("fromName").isString().isLength(NAME_LIMIT),
   body("firstName").isString().isLength(NAME_LIMIT),
   body("lastName").isString().isLength(NAME_LIMIT),
   body("again").default(false).isBoolean(),
@@ -248,7 +253,7 @@ app.post("/invite",
       to: req.body.to,
       from: {
         email: process.env.EMAIL as string,
-        name: process.env.NAME as string
+        name: req.body.fromName
       },
       subject: req.body.subject,
       html: '',
@@ -280,10 +285,9 @@ app.post("/invite",
 
     try {
       await MailService.send(message)
-      res.sendStatus(200)
     } catch (e) {
       console.log(e)
-      res.sendStatus(500)
+      return res.sendStatus(500)
     }
 
     if (req.body.again) {
@@ -298,15 +302,16 @@ app.post("/invite",
           await q.docs[0].ref.update({
             nInvites: q.docs[0].data()?.nInvites + 1 ?? 2
           })
+          return res.sendStatus(200)
         } catch (e) {
           console.log(e)
           return res.sendStatus(500)
         }
       }
     } else {
-      const usersColl = admin.firestore().collection("students");
+      const studentColl = admin.firestore().collection("students");
       try {
-        await usersColl.add({
+        const student = await studentColl.add({
           firstName: req.body.firstName,
           lastName: req.body.lastName,
           email: req.body.email,
@@ -315,16 +320,22 @@ app.post("/invite",
           createdAt: Date.now(),
           teacher: (req as UidRequest).uid
         })
+        return res.status(200).json({
+          ...(await student.get()).data,
+          id: student.id
+        })
       } catch (e) {
         console.log(e)
-        res.sendStatus(500)
+        return res.sendStatus(500)
       }
     }
 
 })
+
 app.post("/sendEmail",
   authMiddleware,
   body("to").isArray(ARRAY),
+  body("fromName").isString().isLength(NAME_LIMIT),
   body("subject").isString().isLength(NAME_LIMIT),
   body("emailBody").isString().isLength(EMAIL_BODY),
   async (req: Request, res: Response) => {
@@ -339,7 +350,7 @@ app.post("/sendEmail",
       to: req.body.to,
       from: {
         email: process.env.EMAIL as string,
-        name: process.env.NAME as string
+        name: req.body.fromName
       },
       subject: req.body.subject,
       // html:
@@ -372,15 +383,21 @@ app.post("/sendEmail",
 
     try {
       await MailService.send(message)
-      res.sendStatus(200)
+      return res.sendStatus(200)
     } catch (e) {
       console.log(e)
-      res.sendStatus(500)
+      return res.sendStatus(500)
     }
 })
 
 /** Redirect to link */
 app.get("/link/:linkId")
+
+app.use((req: Request, res: Response, next: any) => {
+  return res.status(404).json({
+    error: 'Not Found'
+  })
+})
 
 export const api = functions
     .https.onRequest(app);
